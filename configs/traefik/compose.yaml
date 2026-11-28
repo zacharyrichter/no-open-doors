@@ -1,0 +1,36 @@
+services:
+  traefik:
+    container_name: "traefik"
+    image: "traefik:<pinned-version>"
+    restart: "unless-stopped"
+    volumes:
+      - "./config/:/etc/traefik/:ro"
+      - "/opt/appdata/traefik/:/opt/appdata/traefik/"
+      - "./plugins-local/:/plugins-local/:ro"
+    networks:
+      warptunnel:
+        # Fixed address: the CrowdSec plugin runs inside Traefik, and CrowdSec registers
+        # a new "<bouncer>@<IP>" entry whenever the bouncer's API key is used from a new IP.
+        # High address so Docker's own allocation (from the bottom of the subnet) never takes it.
+        ipv4_address: "172.20.0.249"
+    env_file:
+      - path: "./.env"
+        required: true
+    read_only: true
+    cap_drop:
+      - "ALL"
+    cap_add:
+      - "NET_BIND_SERVICE"
+    security_opt:
+      - "no-new-privileges:true"
+
+networks:
+  # This stack owns warptunnel. The subnet is pinned because traefik.yml's
+  # forwardedHeaders.trustedIPs must match it. Other stacks use external: true.
+  warptunnel:
+    name: "warptunnel"
+    driver: "bridge"
+    ipam:
+      config:
+        - subnet: "172.20.0.0/16"
+          gateway: "172.20.0.1"

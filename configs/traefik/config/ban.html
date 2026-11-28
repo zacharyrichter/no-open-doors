@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Access blocked</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f4f5f7; color: #1f2328; padding: 1.5rem; box-sizing: border-box;
+  }
+  .card {
+    max-width: 34rem; width: 100%; background: #fff; border-radius: 12px; padding: 2rem;
+    box-shadow: 0 2px 12px rgba(0,0,0,.08);
+  }
+  h1 { margin: 0 0 .75rem; font-size: 1.4rem; }
+  p { line-height: 1.55; margin: 0 0 1rem; }
+  h2 { font-size: 1rem; margin: 1.5rem 0 .5rem; }
+  ul { margin: 0 0 1rem; padding-left: 1.25rem; line-height: 1.55; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: .4rem 1rem; margin: 0;
+       background: #f4f5f7; border-radius: 8px; padding: 1rem; font-size: .9rem; }
+  dt { font-weight: 600; }
+  dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+  .note { font-size: .85rem; color: #59636e; margin-top: 1rem; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #0d1117; color: #e6edf3; }
+    .card { background: #161b22; box-shadow: none; }
+    dl { background: #0d1117; }
+    .note { color: #9198a1; }
+  }
+</style>
+</head>
+<body>
+<main class="card">
+  <h1>Access blocked</h1>
+  {{ if eq .RemediationReason "APPSEC" }}
+  <p>This request was blocked by automated security because it matched a pattern commonly used in attacks. This can occasionally happen by mistake.</p>
+  {{ else if eq .RemediationReason "LAPI" }}
+  <p>Your connection has been temporarily blocked by automated security. This usually happens after repeated failed sign-in attempts, or traffic that looked suspicious.</p>
+  {{ else }}
+  <p>Your request could not be checked by the security system, so it was blocked as a precaution. This is a temporary problem on our side.</p>
+  {{ end }}
+
+  <h2>What you can do</h2>
+  <ul>
+    <li>Wait a few hours and try again. Most blocks expire on their own.</li>
+    <li>If you still can't get in, contact the admin and send them the details below.</li>
+  </ul>
+
+  <dl>
+    <dt>Your IP</dt><dd>{{ html .ClientIP }}</dd>
+    <dt>Block type</dt><dd>{{ if eq .RemediationReason "APPSEC" }}Request filter (AppSec){{ else if eq .RemediationReason "LAPI" }}IP ban{{ else }}Technical issue{{ end }}</dd>
+    {{ with .TraceID }}<dt>Reference</dt><dd>{{ html . }}</dd>{{ end }}
+    <dt>Time (UTC)</dt><dd id="t">-</dd>
+  </dl>
+  <p class="note">A screenshot of this page is the easiest way to send these details.</p>
+</main>
+<script>
+  document.getElementById("t").textContent = new Date().toISOString().replace("T", " ").slice(0, 19);
+</script>
+</body>
+</html>

@@ -1,0 +1,33 @@
+# AppSec-triggered decisions get a Cloudflare Turnstile check instead of a hard ban: these are the
+# scenarios most likely to catch a real user by mistake. Same escalating duration as the bans below.
+name: appsec_captcha_remediation
+#debug: true
+filters:
+ - Alert.Remediation == true && Alert.GetScope() == "Ip" && Alert.GetScenario() in ["crowdsecurity/appsec-vpatch", "crowdsecurity/appsec-native"]
+decisions:
+ - type: captcha
+   duration: 4h
+duration_expr: Sprintf('%dh', (GetDecisionsCount(Alert.GetValue()) + 1) * 4)
+on_success: break
+---
+# Each new ban for the same IP or range lasts 4h longer than the last (4h, 8h, 12h, ...),
+# based on how many decisions that value already has.
+name: default_ip_remediation
+#debug: true
+filters:
+ - Alert.Remediation == true && Alert.GetScope() == "Ip"
+decisions:
+ - type: ban
+   duration: 4h
+duration_expr: Sprintf('%dh', (GetDecisionsCount(Alert.GetValue()) + 1) * 4)
+on_success: break
+---
+name: default_range_remediation
+#debug: true
+filters:
+ - Alert.Remediation == true && Alert.GetScope() == "Range"
+decisions:
+ - type: ban
+   duration: 4h
+duration_expr: Sprintf('%dh', (GetDecisionsCount(Alert.GetValue()) + 1) * 4)
+on_success: break

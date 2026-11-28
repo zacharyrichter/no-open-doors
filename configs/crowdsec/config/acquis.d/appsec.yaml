@@ -1,0 +1,13 @@
+# AppSec (WAF) listener - the Traefik bouncer plugin sends every request here for inspection.
+# Reachable only on the warptunnel network; requests must carry a valid bouncer API key.
+# appsec-default blocks matching requests. To fall back to log-only, swap in custom/appsec-detect-only
+# and re-add the AppSec ban scenarios to simulation.yaml.
+source: appsec
+name: appsec
+listen_addr: "0.0.0.0:7422"
+# Parallel AppSec workers - one per vCPU on dmz. Default is 1, which queues every request behind one worker.
+routines: 4
+appsec_configs:
+  - crowdsecurity/appsec-default
+labels:
+  type: appsec

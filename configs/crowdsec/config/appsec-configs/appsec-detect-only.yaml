@@ -1,0 +1,12 @@
+# Same rule selection as crowdsecurity/appsec-default (virtual patching + generic rules),
+# but default_remediation: allow, so matching requests are logged as alerts and passed through.
+# Bans from repeated matches are held back separately by simulation.yaml.
+name: custom/appsec-detect-only
+default_remediation: allow
+inband_rules:
+  - crowdsecurity/base-config
+  - crowdsecurity/vpatch-*
+  - crowdsecurity/generic-*
+outofband_rules:
+  - crowdsecurity/experimental-*
+  - crowdsecurity/appsec-generic-test

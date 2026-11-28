@@ -1,0 +1,73 @@
+global:
+  checkNewVersion: true
+  sendAnonymousUsage: false
+
+entryPoints:
+  https:
+    address: :443
+    forwardedHeaders:
+      # Must match the warptunnel subnet, pinned in compose.yaml (networks.warptunnel.ipam)
+      trustedIPs: &trustedIps
+        - "172.20.0.0/16"
+    http:
+      # Drop request headers whose names alias another (X_Foo / X.Foo vs X-Foo)
+      aliasHeadersStrategy: delete
+      tls:
+        certResolver: letsencrypt
+        domains:
+          - main: example.net
+            sans:
+              - '*.example.net'
+
+providers:
+  providersThrottleDuration: 2s
+
+  # File provider: the two apps are outside Docker, and the middlewares live here too
+  file:
+    filename: "/etc/traefik/fileConfig.yml"
+    watch: true
+
+# CrowdSec bouncer plugin, loaded from source vendored in the stacks repo (./plugins-local,
+# mounted read-only) so Traefik never downloads anything at startup
+experimental:
+  localPlugins:
+    bouncer:
+      # Version of the vendored source in ./plugins-local. Renovate bumps this line and re-copies the source.
+      # renovate: datasource=github-releases depName=maxlerebourg/crowdsec-bouncer-traefik-plugin version=<pinned-version>
+      moduleName: "github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin"
+
+api:
+  dashboard: false
+
+log:
+  filePath: "/opt/appdata/traefik/logs/traefik.log"
+  level: INFO
+  maxSize: 10
+  maxBackups: 3
+  maxAge: 7
+
+# Let's Encrypt, by DNS challenge, so no inbound port is needed to issue certificates
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: admin@example.com
+      storage: "/opt/appdata/traefik/acme.json"
+      dnsChallenge:
+        provider: cloudflare
+        propagation:
+          disableChecks: true
+          delayBeforeChecks: 60s
+
+accessLog:
+  filePath: "/opt/appdata/traefik/logs/access.log"
+  # JSON so CrowdSec can use Cloudflare's Cf-Connecting-Ip (not spoofable) instead of X-Forwarded-For
+  format: json
+  fields:
+    defaultMode: keep
+    headers:
+      defaultMode: drop
+      names:
+        Cf-Connecting-Ip: keep
+  filters:
+    statusCodes:
+      - "200-599"

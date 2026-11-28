@@ -1,0 +1,22 @@
+services:
+  cloudflared:
+    image: "cloudflare/cloudflared:<pinned-version>"
+    container_name: "cloudflared"
+    restart: "unless-stopped"
+    env_file:
+      - path: "./.env"
+        required: true
+    networks:
+      - "warptunnel"
+    command: "tunnel --no-autoupdate --config /home/nonroot/.cloudflared/config.yml run ${UUID}"
+    volumes:
+      - "./config:/home/nonroot/.cloudflared/:ro"
+    read_only: true
+    cap_drop:
+      - "ALL"
+    security_opt:
+      - "no-new-privileges:true"
+
+networks:
+  warptunnel:
+    external: true

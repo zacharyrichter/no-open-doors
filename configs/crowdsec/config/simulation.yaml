@@ -1,0 +1,4 @@
+simulation: false
+# Scenarios listed here run in simulation: their alerts and decisions are recorded,
+# but decisions are never sent to bouncers.
+exclusions: []

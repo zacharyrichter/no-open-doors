@@ -1,0 +1,223 @@
+http:
+  ## ROUTERS: one per app, plus a higher-priority one that matches only the login paths ##
+  routers:
+    app-a:
+      entryPoints:
+        - https
+      rule: "Host(`app-a.example.net`)"
+      service: app-a
+      middlewares:
+        - secured-chain
+
+    app-a-auth:
+      entryPoints:
+        - https
+      rule: "Host(`app-a.example.net`) && PathRegexp(`(?i)^/Users/(AuthenticateByName|AuthenticateWithQuickConnect|ForgotPassword|ForgotPassword/Pin|New|Public)$`)"
+      priority: 100
+      service: app-a
+      middlewares:
+        - auth-chain
+
+    # App A's admin-only API (every endpoint here requires an administrator in the app itself),
+    # blocked on the public URL - administration happens internally only.
+    app-a-admin-block:
+      entryPoints:
+        - https
+      rule: >-
+        Host(`app-a.example.net`) && (
+        PathRegexp(`(?i)^/(Startup|Plugins|Packages|Repositories|ScheduledTasks|Devices|Backup|Environment|Auth/Keys|Library/(VirtualFolders|Refresh|PhysicalPaths|MediaFolders)|System/(ActivityLog|Logs|Info/Storage|Restart|Shutdown)|metrics)(/.*)?$`)
+        || (Method(`POST`) && PathRegexp(`(?i)^/(System/Configuration(/.*)?|Users/New|Users/[^/]+/Policy|Items/[^/]+(/(Refresh|ContentType))?)$`))
+        || (Method(`DELETE`) && PathRegexp(`(?i)^/Users/[^/]+$`))
+        || PathRegexp(`(?i)^/Items/[^/]+/MetadataEditor$`)
+        )
+      priority: 200
+      service: app-a
+      middlewares:
+        - deny-external
+
+    app-b:
+      entryPoints:
+        - https
+      rule: 'Host(`app-b.example.net`)'
+      service: app-b
+      middlewares:
+        - secured-chain
+
+    app-b-auth:
+      entryPoints:
+        - https
+      rule: "Host(`app-b.example.net`) && PathRegexp(`(?i)^/api/v1/auth/(<provider-a>|<provider-b>|local|reset-password)(/.*)?$`)"
+      priority: 100
+      service: app-b
+      middlewares:
+        - auth-chain
+
+    # App B's settings API (admin-only in the app), blocked on the public URL - administration
+    # happens internally only. The three settings endpoints regular users need stay reachable.
+    app-b-admin-block:
+      entryPoints:
+        - https
+      rule: >-
+        Host(`app-b.example.net`)
+        && PathRegexp(`(?i)^/api/v1/settings(/.*)?$`)
+        && !PathRegexp(`(?i)^/api/v1/settings/(public|discover|notifications/pushover/sounds)/?$`)
+      priority: 200
+      service: app-b
+      middlewares:
+        - deny-external
+
+  services:
+    app-a:
+      loadBalancer:
+        servers:
+          - url: http://10.0.50.80:8096
+        passHostHeader: true
+    app-b:
+      loadBalancer:
+        servers:
+          - url: http://10.0.50.85:5055
+        passHostHeader: true
+  ## MIDDLEWARES ##
+  middlewares:
+    # CrowdSec bouncer plugin - first in every chain so banned IPs are rejected before anything else.
+    # Client IP comes from CF-Connecting-IP, trusted only when the request arrives from the warptunnel subnet.
+    # Stream mode: bans are pulled from CrowdSec every 60s and held in memory; updateMaxFailure -1 keeps
+    # enforcing the last known bans if CrowdSec is down, instead of blocking all traffic.
+    # AppSec (WAF): every request is also checked by CrowdSec's AppSec listener. Whether a match blocks is
+    # decided in CrowdSec (its acquis.d/appsec.yaml). The three *Block: false settings fail open, so an AppSec
+    # outage, error or unbufferable body (some clients) lets the request through instead of a 403.
+    crowdsec-bouncer:
+      plugin:
+        bouncer:
+          enabled: true
+          logLevel: INFO
+          crowdsecMode: stream
+          updateIntervalSeconds: 60
+          updateMaxFailure: -1
+          crowdsecLapiScheme: http
+          crowdsecLapiHost: "crowdsec:8080"
+          crowdsecLapiKey: '{{ env "CROWDSEC_LAPI_KEY" }}'
+          forwardedHeadersCustomName: "CF-Connecting-IP"
+          forwardedHeadersTrustedIPs:
+            - "172.20.0.0/16"
+          crowdsecAppsecEnabled: true
+          crowdsecAppsecHost: "crowdsec:7422"
+          crowdsecAppsecFailureBlock: false
+          crowdsecAppsecUnreachableBlock: false
+          crowdsecAppsecUnreadableBodyBlock: false
+          # Page shown on a ban or AppSec block (./config/ban.html). Cloudflare's Ray ID is shown as a reference.
+          banFilePath: "/etc/traefik/ban.html"
+          traceHeadersCustomName: "Cf-Ray"
+          # Captcha decisions (see CrowdSec profiles.yaml) get a Cloudflare Turnstile check (./config/captcha.html)
+          # instead of the ban page. Passing it lets the whole IP through for 24h, so apps on the same network work too.
+          captchaProvider: turnstile
+          captchaSiteKey: '{{ env "CROWDSEC_CAPTCHA_SITE_KEY" }}'
+          captchaSecretKey: '{{ env "CROWDSEC_CAPTCHA_SECRET_KEY" }}'
+          captchaGracePeriodSeconds: 86400
+          captchaFilePath: "/etc/traefik/captcha.html"
+    strip-proxy-headers:
+      headers:
+        customRequestHeaders:
+          X-Real-IP: ""
+          X-Forwarded-For: ""
+          X-Forwarded-Host: ""
+          X-Forwarded-Proto: "https"
+    general-rate-limit:          # for normal traffic - per client IP
+      rateLimit:
+        average: 100
+        burst: 50
+        period: 1s
+        sourceCriterion:
+          requestHeaderName: CF-Connecting-IP
+    auth-rate-limit:             # for auth routes - per client IP
+      rateLimit:
+        average: 5
+        period: 3m
+        burst: 5
+        sourceCriterion:
+          requestHeaderName: CF-Connecting-IP
+    auth-inflight:               # auth routes - max concurrent open requests per client IP
+      inFlightReq:
+        amount: 3
+        sourceCriterion:
+          requestHeaderName: CF-Connecting-IP
+    auth-body-limit:             # auth routes - login payloads are tiny; larger bodies get 413
+      buffering:
+        maxRequestBodyBytes: 65536
+    # Returns 403 to everything: requests arrive from the warptunnel subnet, never loopback.
+    # Used by the *-admin-block routers.
+    deny-external:
+      ipAllowList:
+        sourceRange:
+          - "127.0.0.1/32"
+    # Security Headers
+    securityHeaders:
+      headers:
+    # HSTS Settings
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        stsPreload: true
+        forceSTSHeader: true
+    # Security Policies
+        contentTypeNosniff: true
+        referrerPolicy: "strict-origin-when-cross-origin"
+        frameDeny: false
+        customFrameOptionsValue: "SAMEORIGIN"
+    # Information Concealment & Permissions
+        customResponseHeaders:
+          Server: "" # Hides Traefik version
+          X-DNS-Prefetch-Control: "off"
+          X-Robots-Tag: "none,noarchive,nosnippet,notranslate,noimageindex"
+          Permissions-Policy: "microphone=(), camera=(), payment=(), geolocation=()"
+          # Cross-Origin Isolation (Spectre/Meltdown Protection)
+          Cross-Origin-Opener-Policy: "same-origin"
+          Cross-Origin-Embedder-Policy: "unsafe-none"
+          Cross-Origin-Resource-Policy: "same-site"
+    compress:
+      compress:
+        excludedContentTypes:
+          - text/event-stream
+          - video/mp4
+          - video/webm
+          - video/x-matroska
+          - audio/mpeg
+          - audio/ogg
+          - image/jpeg
+          - image/png
+          - image/webp
+    secured-chain:               # for normal routes - permissive rate limit
+      chain:
+        middlewares:
+          - crowdsec-bouncer
+          - strip-proxy-headers
+          - general-rate-limit
+          - securityHeaders
+          - compress
+
+    auth-chain:                  # for auth routes - tight rate limit
+      chain:
+        middlewares:
+          - auth-body-limit      # first, so oversized bodies are rejected before anything reads them
+          - crowdsec-bouncer
+          - strip-proxy-headers
+          - auth-rate-limit
+          - auth-inflight
+          - securityHeaders
+          - compress
+
+# Only use secure ciphers - https://ssl-config.mozilla.org/
+tls:
+  options:
+    default:
+      minVersion: VersionTLS12
+      sniStrict: true
+      curvePreferences:
+        - X25519
+        - CurveP256
+      cipherSuites:
+        - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305
+        - TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305
+        - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384

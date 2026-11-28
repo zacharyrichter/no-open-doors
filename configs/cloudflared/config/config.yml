@@ -1,0 +1,10 @@
+tunnel: <TUNNEL_ID>
+credentials-file: /home/nonroot/.cloudflared/<TUNNEL_ID>.json
+
+# Everything goes to the reverse proxy over TLS. originServerName is a name the proxy's
+# wildcard certificate covers (Traefik uses strict SNI), so the tunnel's own handshake is accepted.
+# Keep a single ingress rule.
+ingress:
+  - service: https://traefik:443
+    originRequest:
+      originServerName: app-b.example.net

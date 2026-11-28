@@ -1,0 +1,10 @@
+name: local/cf-connecting-ip
+description: "Traefik JSON logs: use Cloudflare's CF-Connecting-IP as source_ip (X-Forwarded-For is client-spoofable)"
+filter: |
+  evt.Meta.log_type == 'http_access-log' &&
+  evt.Unmarshaled.traefik != nil &&
+  evt.Unmarshaled.traefik['request_Cf-Connecting-Ip'] != nil &&
+  evt.Unmarshaled.traefik['request_Cf-Connecting-Ip'] != ''
+statics:
+  - meta: source_ip
+    expression: evt.Unmarshaled.traefik['request_Cf-Connecting-Ip']

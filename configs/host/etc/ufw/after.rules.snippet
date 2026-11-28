@@ -1,0 +1,15 @@
+# Two additions to /etc/ufw/after.rules (the rest of the file stays as shipped).
+
+# 1. In the chain declarations at the top of the file, with the other ":ufw-after-..." lines:
+:DOCKER-USER - [0:0]
+
+# 2. Before the final COMMIT line:
+
+# Docker management agent (8120): only the management host may connect.
+# Docker-published ports are DNAT'd and forwarded, so they never reach ufw's
+# INPUT rules; DOCKER-USER is the first chain FORWARD jumps to.
+# --ctorigdstport matches the port the client connected to (before Docker's
+# DNAT); --ctdir ORIGINAL keeps the agent's replies from hitting the DROP.
+# ufw loads this before Docker starts; Docker keeps existing DOCKER-USER rules.
+-A DOCKER-USER -p tcp -m conntrack --ctorigdstport 8120 --ctdir ORIGINAL -s 10.0.99.6 -j RETURN
+-A DOCKER-USER -p tcp -m conntrack --ctorigdstport 8120 --ctdir ORIGINAL -j DROP

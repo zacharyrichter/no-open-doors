@@ -1,0 +1,34 @@
+services:
+  crowdsec:
+    image: "crowdsecurity/crowdsec:<pinned-version>"
+    container_name: "crowdsec"
+    restart: "unless-stopped"
+    env_file:
+      - path: "./.env"
+        required: true
+    volumes:
+      - "/opt/appdata/crowdsec/config:/etc/crowdsec:rw"
+      - "/opt/appdata/crowdsec/data:/var/lib/crowdsec/data:rw"
+      - "/opt/appdata/traefik/logs:/var/log/traefik:ro"
+      # Repo-managed config, mounted over the host config dir (read-only)
+      - "./config/acquis.yaml:/etc/crowdsec/acquis.yaml:ro"
+      - "./config/acquis.d/appsec.yaml:/etc/crowdsec/acquis.d/appsec.yaml:ro"
+      - "./config/appsec-configs/appsec-detect-only.yaml:/etc/crowdsec/appsec-configs/appsec-detect-only.yaml:ro"
+      - "./config/simulation.yaml:/etc/crowdsec/simulation.yaml:ro"
+      - "./config/profiles.yaml:/etc/crowdsec/profiles.yaml:ro"
+      - "./config/scenarios/app-auth-bf.yaml:/etc/crowdsec/scenarios/app-auth-bf.yaml:ro"
+      - "./config/parsers/s02-enrich/00-cf-connecting-ip.yaml:/etc/crowdsec/parsers/s02-enrich/00-cf-connecting-ip.yaml:ro"
+      - "/etc/localtime:/etc/localtime:ro"
+    networks:
+      - "warptunnel"
+    read_only: true
+    tmpfs:
+      - "/tmp"
+    cap_drop:
+      - "ALL"
+    security_opt:
+      - "no-new-privileges:true"
+
+networks:
+  warptunnel:
+    external: true

@@ -1,0 +1,29 @@
+type: leaky
+name: local/app-auth-bf
+description: "App A / App B login brute force: repeated failed logins via Traefik (IPv6 grouped per /64)"
+filter: |
+  evt.Meta.log_type == 'http_access-log' &&
+  evt.Meta.http_verb == 'POST' &&
+  (
+    (evt.Meta.http_status == '401' &&
+     evt.Meta.http_path matches '(?i)^/Users/AuthenticateByName') ||
+    (evt.Meta.http_status in ['401', '403'] &&
+     evt.Meta.http_path matches '(?i)^/api/v1/auth/(<provider-a>|local|<provider-b>)')
+  )
+# IPv6 clients rotate addresses inside their /64, so count and ban per /64; IPv4 stays per address
+groupby: "IsIPV6(evt.Meta.source_ip) ? IpToRange(evt.Meta.source_ip, '/64') : evt.Meta.source_ip"
+scope:
+  type: Range
+  expression: "IsIPV6(evt.Meta.source_ip) ? IpToRange(evt.Meta.source_ip, '/64') : IpToRange(evt.Meta.source_ip, '/32')"
+capacity: 4
+leakspeed: 2m
+blackhole: 5m
+labels:
+  service: http
+  confidence: 3
+  spoofable: 0
+  classification:
+    - attack.T1110
+  behavior: "http:bruteforce"
+  label: "App A / App B login brute force"
+  remediation: true
